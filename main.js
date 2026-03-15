@@ -11,6 +11,11 @@ const {
 
 let win;
 let petVisible = true;
+let currentCorner = 'bottom-left';
+let currentDisplayIndex = 0;
+
+const WIN_SIZE = 200;
+const MARGIN = 20;
 
 // --- Character system ---
 // Canonical asset names → orc bundled filenames
@@ -27,6 +32,51 @@ function loadPetConfig() {
       path.join(app.getPath('userData'), 'peon-pet-config.json'), 'utf8'
     ));
   } catch { return {}; }
+}
+
+function savePetConfig(patch) {
+  const cfgPath = path.join(app.getPath('userData'), 'peon-pet-config.json');
+  const existing = loadPetConfig();
+  fs.writeFileSync(cfgPath, JSON.stringify({ ...existing, ...patch }, null, 2));
+}
+
+function getTargetDisplay(displayIndex) {
+  const displays = screen.getAllDisplays();
+  if (displayIndex >= 0 && displayIndex < displays.length) {
+    return { display: displays[displayIndex], index: displayIndex };
+  }
+  const primary = screen.getPrimaryDisplay();
+  const idx = displays.indexOf(primary);
+  return { display: primary, index: Math.max(idx, 0) };
+}
+
+function calculateWindowPosition(corner, displayIndex) {
+  const { display, index } = getTargetDisplay(displayIndex);
+  const { x: wx, y: wy, width, height } = display.workArea;
+
+  const positions = {
+    'top-left':     { x: wx + MARGIN,                     y: wy + MARGIN },
+    'top-right':    { x: wx + width - WIN_SIZE - MARGIN,  y: wy + MARGIN },
+    'bottom-left':  { x: wx + MARGIN,                     y: wy + height - WIN_SIZE - MARGIN },
+    'bottom-right': { x: wx + width - WIN_SIZE - MARGIN,  y: wy + height - WIN_SIZE - MARGIN },
+  };
+
+  return { ...positions[corner], displayIndex: index };
+}
+
+function moveWindowTo(corner, displayIndex) {
+  const pos = calculateWindowPosition(corner, displayIndex);
+  currentCorner = corner;
+  currentDisplayIndex = pos.displayIndex;
+
+  if (win && !win.isDestroyed()) {
+    win.setPosition(pos.x, pos.y);
+  }
+
+  savePetConfig({ position: currentCorner, displayIndex: currentDisplayIndex });
+  if (process.platform === 'darwin') {
+    app.dock.setMenu(buildDockMenu());
+  }
 }
 
 function registerCharacterProtocol() {
@@ -192,6 +242,34 @@ function startMouseTracking() {
 }
 
 function buildDockMenu() {
+  const corners = [
+    { label: 'Bottom Left',  value: 'bottom-left' },
+    { label: 'Bottom Right', value: 'bottom-right' },
+    { label: 'Top Left',     value: 'top-left' },
+    { label: 'Top Right',    value: 'top-right' },
+  ];
+
+  const displays = screen.getAllDisplays();
+  const hasMultipleDisplays = displays.length > 1;
+
+  const positionSubmenu = [
+    ...corners.map(c => ({
+      label: c.label,
+      type: 'radio',
+      checked: currentCorner === c.value,
+      click() { moveWindowTo(c.value, currentDisplayIndex); },
+    })),
+    { type: 'separator' },
+    {
+      label: 'Move to Next Screen',
+      enabled: hasMultipleDisplays,
+      click() {
+        const nextIndex = (currentDisplayIndex + 1) % displays.length;
+        moveWindowTo(currentCorner, nextIndex);
+      },
+    },
+  ];
+
   return Menu.buildFromTemplate([
     {
       label: petVisible ? 'Hide Pet' : 'Show Pet',
@@ -208,6 +286,11 @@ function buildDockMenu() {
     },
     { type: 'separator' },
     {
+      label: 'Position',
+      submenu: positionSubmenu,
+    },
+    { type: 'separator' },
+    {
       label: 'Quit',
       click() {
         app.quit();
@@ -217,13 +300,18 @@ function buildDockMenu() {
 }
 
 function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const cfg = loadPetConfig();
+  currentCorner = cfg.position || 'bottom-left';
+  currentDisplayIndex = cfg.displayIndex || 0;
+
+  const pos = calculateWindowPosition(currentCorner, currentDisplayIndex);
+  currentDisplayIndex = pos.displayIndex;
 
   win = new BrowserWindow({
-    width: 200,
-    height: 200,
-    x: 20,
-    y: height - 220,
+    width: WIN_SIZE,
+    height: WIN_SIZE,
+    x: pos.x,
+    y: pos.y,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -243,7 +331,6 @@ function createWindow() {
   win.loadFile('renderer/index.html');
 
   if (process.platform === 'darwin') {
-    const cfg = loadPetConfig();
     const char = cfg.character || 'orc';
     const customIcon = path.join(app.getPath('userData'), 'characters', char, 'dock-icon.png');
     const iconPath = (char !== 'orc' && fs.existsSync(customIcon))
@@ -273,6 +360,22 @@ if (!gotLock) {
   app.whenReady().then(() => {
     registerCharacterProtocol();
     createWindow();
+
+    screen.on('display-removed', () => {
+      const displays = screen.getAllDisplays();
+      if (currentDisplayIndex >= displays.length) {
+        moveWindowTo(currentCorner, 0);
+      }
+      if (process.platform === 'darwin') {
+        app.dock.setMenu(buildDockMenu());
+      }
+    });
+
+    screen.on('display-added', () => {
+      if (process.platform === 'darwin') {
+        app.dock.setMenu(buildDockMenu());
+      }
+    });
   });
   app.on('window-all-closed', () => app.quit());
 }

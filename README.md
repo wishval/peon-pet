@@ -4,7 +4,7 @@ A macOS desktop pet for [Peon-Ping](https://peonping.com) — an orc that reacts
 
 <video src="https://github.com/user-attachments/assets/7fd9a2cb-d227-49ad-8ccc-7953ec392a2d" autoplay loop muted playsinline width="400"></video>
 
-Sits in the bottom-left corner of your screen, floats over all windows, and ignores mouse clicks (hover for tooltips).
+Sits in any corner of any screen, floats over all windows, and ignores mouse clicks (hover for tooltips).
 
 ## Requirements
 
@@ -42,7 +42,12 @@ To remove:
 Right-click the dock icon:
 
 - **Hide Pet** / **Show Pet** — toggle visibility without quitting
+- **Position** — submenu to reposition the pet:
+  - **Bottom Left** / **Bottom Right** / **Top Left** / **Top Right** — move to a screen corner
+  - **Move to Next Screen** — cycle through connected displays (disabled with a single monitor)
 - **Quit** — exit completely
+
+Position and display preferences are saved automatically and restored on next launch.
 
 ## Animations
 
